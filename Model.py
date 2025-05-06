@@ -33,199 +33,176 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+
 class SAMBA(nn.Module):
-    def __init__(self, ModelArgs,hidden,inp,out,embed,cheb_k):
-    
+    def __init__(self, ModelArgs, hidden, inp, out, embed, cheb_k):
         super().__init__()
         self.args = ModelArgs
 
+        self.mam1 = Mamba(ModelArgs, hidden)
 
-        self.mam1 = Mamba(ModelArgs,hidden)
+        self.cheb_k = cheb_k
 
-        
+        self.gamma = nn.Parameter(torch.tensor(1.0))
 
-        self.cheb_k=cheb_k
+        self.adj = nn.Parameter(
+            torch.randn(ModelArgs.vocab_size, embed), requires_grad=True
+        )
 
-        self.gamma=nn.Parameter(torch.tensor(1.))
-
-       
-
-  
-
-        self.adj=nn.Parameter(torch.randn(ModelArgs.vocab_size,embed), requires_grad=True)
-
-        self.embed_w=nn.Parameter(torch.randn(embed,embed), requires_grad=True)
-
-        
-       
-
+        self.embed_w = nn.Parameter(torch.randn(embed, embed), requires_grad=True)
 
         self.weights_pool = nn.Parameter(torch.FloatTensor(embed, cheb_k, inp, out))
-        
+
         self.bias_pool = nn.Parameter(torch.FloatTensor(embed, out))
 
-        self.proj=nn.Linear(ModelArgs.vocab_size,1)
-        self.proj_seq=nn.Linear(ModelArgs.seq_in,1)
+        self.proj = nn.Linear(ModelArgs.vocab_size, 1)
+        self.proj_seq = nn.Linear(ModelArgs.seq_in, 1)
 
+    def gaussian_kernel_graph(self, E_A, x, gamma=1.0):
+        # Compute pairwise squared Euclidean distance
 
-        
-        
-    
+        x_mean = torch.mean(x, dim=0)
 
-    
-    
-    def gaussian_kernel_graph(self,E_A,x ,gamma=1.0):
-    
-    # Compute pairwise squared Euclidean distance
+        x_time = torch.mm(x_mean.permute(1, 0), x_mean)
 
-        x_mean=torch.mean(x,dim=0)
-
-        x_time=torch.mm(x_mean.permute(1,0),x_mean)
-
-        
         N = E_A.size(0)
-    # Expanding the dimensions to compute pairwise differences
+        # Expanding the dimensions to compute pairwise differences
         E_A_expanded = E_A.unsqueeze(0).expand(N, N, -1)
         E_A_T_expanded = E_A.unsqueeze(1).expand(N, N, -1)
-    # Pairwise squared Euclidean distances
-        distance_matrix = torch.sum((E_A_expanded - E_A_T_expanded)**2, dim=2)
-    
-    # Apply Gaussian kernel
+        # Pairwise squared Euclidean distances
+        distance_matrix = torch.sum((E_A_expanded - E_A_T_expanded) ** 2, dim=2)
+
+        # Apply Gaussian kernel
         A = torch.exp(-gamma * distance_matrix)
 
-        dr=nn.Dropout(0.35)
+        dr = nn.Dropout(0.35)
 
-        #A=torch.tanh(torch.mm(self.adj, self.adj.transpose(0, 1))+1)
-    
-    # Optional: Normalize the adjacency matrix with softmax (row-wise)
+        # A=torch.tanh(torch.mm(self.adj, self.adj.transpose(0, 1))+1)
+
+        # Optional: Normalize the adjacency matrix with softmax (row-wise)
         A = F.softmax(A, dim=1)
-    
-        return dr(A)
-    
 
+        return dr(A)
 
     def forward(self, input_ids):
+        # x_mean=torch.mean(input_ids,dim=0)
 
-        #x_mean=torch.mean(input_ids,dim=0)
+        # ADJ=F.softmax(torch.mm(x_mean.permute(1,0),x_mean),dim=1)
 
-        #ADJ=F.softmax(torch.mm(x_mean.permute(1,0),x_mean),dim=1)
+        xx = self.mam1(input_ids)
 
+        # m = nn.LeakyReLU(0.1)
+        # ADJ=F.softmax(F.relu(torch.mm(self.adj, self.adj.transpose(0, 1))), dim=1)
+        # dr=nn.Dropout(0.35)
+        # ADJ=dr(F.softmax(F.relu(torch.mm(torch.mm(self.adj, self.embed_w),self.adj.transpose(0, 1))),dim=1))
 
+        ADJ = self.gaussian_kernel_graph(self.adj, xx, gamma=self.gamma)
 
-    
-        
-
-        
-        
-        xx=self.mam1(input_ids)
-
-
-        
-        #m = nn.LeakyReLU(0.1)
-        #ADJ=F.softmax(F.relu(torch.mm(self.adj, self.adj.transpose(0, 1))), dim=1)
-        #dr=nn.Dropout(0.35)
-        #ADJ=dr(F.softmax(F.relu(torch.mm(torch.mm(self.adj, self.embed_w),self.adj.transpose(0, 1))),dim=1))
-        
-        ADJ=self.gaussian_kernel_graph(self.adj,xx,gamma=self.gamma)
-
-        #degree = torch.sum(ADJ, dim=1)
+        # degree = torch.sum(ADJ, dim=1)
         # laplacian is sym or not
-        #attention = 0.5 * (attention + attention.T)
-        #degree_l = torch.diag(degree)+1e-5
-        
-        #deg=torch.diag(1 / (degree + 1e-5))
-        
-        #diagonal_degree_hat = torch.diag(1 / (torch.sqrt(degree) + 1e-5))
-        #attention = torch.matmul(diagonal_degree_hat,torch.matmul(attention, diagonal_degree_hat))#milan
-        #A=torch.matmul(diagonal_degree_hat,torch.matmul(attention, diagonal_degree_hat))
-        #r=torch.rand(1).cuda()
-        
-        #d1=torch.diag(1 / (torch.pow(degree,1-r) + 1e-5))
-        #d2=torch.diag(1 / (torch.pow(degree,r) + 1e-5))
-        
-        
-        #L = torch.eye(input_ids.size(2)).cuda()-torch.matmul(d1,torch.matmul(ADJ,d2))
+        # attention = 0.5 * (attention + attention.T)
+        # degree_l = torch.diag(degree)+1e-5
 
-        I=torch.eye(input_ids.size(2)).cuda()
+        # deg=torch.diag(1 / (degree + 1e-5))
 
-        #L=I-ADJ
+        # diagonal_degree_hat = torch.diag(1 / (torch.sqrt(degree) + 1e-5))
+        # attention = torch.matmul(diagonal_degree_hat,torch.matmul(attention, diagonal_degree_hat))#milan
+        # A=torch.matmul(diagonal_degree_hat,torch.matmul(attention, diagonal_degree_hat))
+        # r=torch.rand(1).cuda()
 
-        #out=self.mlp(xx)
+        # d1=torch.diag(1 / (torch.pow(degree,1-r) + 1e-5))
+        # d2=torch.diag(1 / (torch.pow(degree,r) + 1e-5))
 
+        # L = torch.eye(input_ids.size(2)).cuda()-torch.matmul(d1,torch.matmul(ADJ,d2))
 
-        
+        I = torch.eye(input_ids.size(2)).cuda()
 
-        
-        support_set = [I,ADJ]#(math.sqrt(2)/2)*L,(-math.sqrt(2)/2)*L]
-    
-        
+        # L=I-ADJ
+
+        # out=self.mlp(xx)
+
+        support_set = [I, ADJ]  # (math.sqrt(2)/2)*L,(-math.sqrt(2)/2)*L]
+
         for k in range(2, self.cheb_k):
             support_set.append(torch.matmul(2 * ADJ, support_set[-1]) - support_set[-2])
-        
-        
+
         supports = torch.stack(support_set, dim=0)
-        
-        weights = torch.einsum('nd,dkio->nkio', self.adj, self.weights_pool)  #N, cheb_k, dim_in, dim_out
-        bias = torch.matmul(self.adj, self.bias_pool)                       #N, dim_out
-        x_g = torch.einsum("knm,bmc->bknc", supports, xx.permute(0,2,1))      #B, cheb_k, N, dim_in
+
+        weights = torch.einsum(
+            "nd,dkio->nkio", self.adj, self.weights_pool
+        )  # N, cheb_k, dim_in, dim_out
+        bias = torch.matmul(self.adj, self.bias_pool)  # N, dim_out
+        x_g = torch.einsum(
+            "knm,bmc->bknc", supports, xx.permute(0, 2, 1)
+        )  # B, cheb_k, N, dim_in
         x_g = x_g.permute(0, 2, 1, 3)  # B, N, cheb_k, dim_in
-        out = torch.einsum('bnki,nkio->bno', x_g, weights) + bias#B,N,D_OUT
+        out = torch.einsum("bnki,nkio->bno", x_g, weights) + bias  # B,N,D_OUT
 
-       
-
-
-        
-
-
-        return self.proj(out.permute(0,2,1))
-
-
-
+        return self.proj(out.permute(0, 2, 1))
 
 
 class Mamba(nn.Module):
-    def __init__(self, args: ModelArgs,hid):
+    def __init__(self, args: ModelArgs, hid):
         """Full Mamba model."""
         super().__init__()
         self.args = ModelArgs
 
-        self.nl=args.n_layer
+        self.nl = args.n_layer
 
         self.embedding = nn.Linear(args.vocab_size, args.d_model)
         self.layers = nn.ModuleList([ResidualBlock(args) for _ in range(args.n_layer)])
 
         self.layers2 = nn.ModuleList([ResidualBlock(args) for _ in range(args.n_layer)])
 
-        #self.layers3 = nn.ModuleList([nn.Sequential(RMSNorm(args.seq_in),AVWGCN(args.seq_in,args.seq_in,2,args.d_model)) for _ in range(args.n_layer)])
+        # self.layers3 = nn.ModuleList([nn.Sequential(RMSNorm(args.seq_in),AVWGCN(args.seq_in,args.seq_in,2,args.d_model)) for _ in range(args.n_layer)])
 
-        #self.layers3=nn.ModuleList([nn.Sequential(RMSNorm(args.seq_in),AVWGCN(args.seq_in,args.seq_in,2,args.d_model)) for _ in range(args.n_layer)])
-        
-        #self.layers4=nn.ModuleList([nn.Sequential(RMSNorm(args.seq_in),gconv(args.seq_in,hid,2,10,args.d_model),nn.ReLU(),gconv(hid,args.seq_in,2,10,args.d_model)) for _ in range(args.n_layer)])
-      
-       
+        # self.layers3=nn.ModuleList([nn.Sequential(RMSNorm(args.seq_in),AVWGCN(args.seq_in,args.seq_in,2,args.d_model)) for _ in range(args.n_layer)])
 
-        self.lin=nn.ModuleList([nn.Sequential(nn.LayerNorm(args.seq_in),nn.Linear(args.seq_in,hid),nn.ReLU(),nn.Linear(hid,args.seq_in))]+[nn.Sequential(RMSNorm(args.seq_in),nn.Linear(args.seq_in,hid),nn.ReLU(),nn.Linear(hid,args.seq_in)) for _ in range(args.n_layer-2)]+[nn.Sequential(RMSNorm(args.seq_in),nn.Linear(args.seq_in,hid),nn.ReLU(),nn.Linear(hid,args.seq_in))])
-        
-        #self.lin2=nn.ModuleList([nn.Sequential(RMSNorm(args.seq_in),nn.Linear(args.seq_in,hid),nn.ReLU(),nn.Linear(hid,args.seq_in))]+[nn.Sequential(RMSNorm(args.seq_in),nn.Linear(args.seq_in,hid),nn.ReLU(),nn.Linear(hid,args.seq_in)) for _ in range(args.n_layer-2)]+[nn.Sequential(RMSNorm(args.seq_in),nn.Linear(args.seq_in,hid),nn.ReLU(),nn.Linear(hid,args.seq_in))])
-        
-        
+        # self.layers4=nn.ModuleList([nn.Sequential(RMSNorm(args.seq_in),gconv(args.seq_in,hid,2,10,args.d_model),nn.ReLU(),gconv(hid,args.seq_in,2,10,args.d_model)) for _ in range(args.n_layer)])
+
+        self.lin = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.LayerNorm(args.seq_in),
+                    nn.Linear(args.seq_in, hid),
+                    nn.ReLU(),
+                    nn.Linear(hid, args.seq_in),
+                )
+            ]
+            + [
+                nn.Sequential(
+                    RMSNorm(args.seq_in),
+                    nn.Linear(args.seq_in, hid),
+                    nn.ReLU(),
+                    nn.Linear(hid, args.seq_in),
+                )
+                for _ in range(args.n_layer - 2)
+            ]
+            + [
+                nn.Sequential(
+                    RMSNorm(args.seq_in),
+                    nn.Linear(args.seq_in, hid),
+                    nn.ReLU(),
+                    nn.Linear(hid, args.seq_in),
+                )
+            ]
+        )
+
+        # self.lin2=nn.ModuleList([nn.Sequential(RMSNorm(args.seq_in),nn.Linear(args.seq_in,hid),nn.ReLU(),nn.Linear(hid,args.seq_in))]+[nn.Sequential(RMSNorm(args.seq_in),nn.Linear(args.seq_in,hid),nn.ReLU(),nn.Linear(hid,args.seq_in)) for _ in range(args.n_layer-2)]+[nn.Sequential(RMSNorm(args.seq_in),nn.Linear(args.seq_in,hid),nn.ReLU(),nn.Linear(hid,args.seq_in))])
+
         self.norm_f = nn.LayerNorm(args.d_model)
 
         self.lm_head = nn.Linear(args.d_model, args.vocab_size)
 
+        self.proj = nn.Sequential(
+            nn.Linear(args.seq_in, hid), nn.ReLU(), nn.Linear(hid, args.seq_in)
+        )
 
-        self.proj=nn.Sequential(nn.Linear(args.seq_in,hid),nn.ReLU(),nn.Linear(hid,args.seq_in))
+        self.nnl = nn.LayerNorm(args.vocab_size)
 
-        self.nnl=nn.LayerNorm(args.vocab_size)
-
-    
-
-    
-      
-        #self.proj=nn.Linear(2*ModelArgs.vocab_size, ModelArgs.vocab_size)
-        #self.lm_head.weight = self.embedding.weight  # Tie output projection to embedding weights.
-                                                     # See "Weight Tying" paper
-
+        # self.proj=nn.Linear(2*ModelArgs.vocab_size, ModelArgs.vocab_size)
+        # self.lm_head.weight = self.embedding.weight  # Tie output projection to embedding weights.
+        # See "Weight Tying" paper
 
     def forward(self, input_ids):
         """
@@ -239,47 +216,38 @@ class Mamba(nn.Module):
             class MambaLMHeadModel, https://github.com/state-spaces/mamba/blob/main/mamba_ssm/models/mixer_seq_simple.py#L173
 
         """
-        
-        
+
         x = self.embedding(input_ids)
 
-        x1=x
-        x2=x
-    
+        x1 = x
+        x2 = x
 
         for i in range(self.nl):
-            
             x1 = self.layers[i](x1)
-            x2=self.layers2[i](x2.flip([1]))
-            
-            x=x1+x2.flip([1])+x
+            x2 = self.layers2[i](x2.flip([1]))
 
-            x=self.lin[i](x.permute(0,2,1)).permute(0,2,1)+x
+            x = x1 + x2.flip([1]) + x
 
-            x1=x
-            x2=x
-            
-            
-            
+            x = self.lin[i](x.permute(0, 2, 1)).permute(0, 2, 1) + x
+
+            x1 = x
+            x2 = x
 
         x = self.norm_f(x)
-        
+
         logits = self.lm_head(x)
 
-        
+        #        a=logits.shape
 
-#        a=logits.shape
+        #       #sq=torch.reshape(logits,(a[0],a[2],a[1]))
 
- #       #sq=torch.reshape(logits,(a[0],a[2],a[1]))
+        #      out=self.out(sq)
 
-  #      out=self.out(sq)
+        #     b=out.shape
 
-   #     b=out.shape
-
-    #    out=torch.reshape(out,(b[0],b[2],b[1]))
+        #    out=torch.reshape(out,(b[0],b[2],b[1]))
 
         return logits
-
 
     @staticmethod
     def from_pretrained(pretrained_model_name: str):
@@ -302,35 +270,35 @@ class Mamba(nn.Module):
         from transformers.utils.hub import cached_file
 
         def load_config_hf(model_name):
-            resolved_archive_file = cached_file(model_name, CONFIG_NAME,
-                                                _raise_exceptions_for_missing_entries=False)
+            resolved_archive_file = cached_file(
+                model_name, CONFIG_NAME, _raise_exceptions_for_missing_entries=False
+            )
             return json.load(open(resolved_archive_file))
 
-
         def load_state_dict_hf(model_name, device=None, dtype=None):
-            resolved_archive_file = cached_file(model_name, WEIGHTS_NAME,
-                                                _raise_exceptions_for_missing_entries=False)
-            return torch.load(resolved_archive_file, weights_only=True, map_location='cpu', mmap=True)
+            resolved_archive_file = cached_file(
+                model_name, WEIGHTS_NAME, _raise_exceptions_for_missing_entries=False
+            )
+            return torch.load(
+                resolved_archive_file, weights_only=True, map_location="cpu", mmap=True
+            )
 
         config_data = load_config_hf(pretrained_model_name)
         args = ModelArgs(
-            d_model=config_data['d_model'],
-            n_layer=config_data['n_layer'],
-            vocab_size=config_data['vocab_size']
+            d_model=config_data["d_model"],
+            n_layer=config_data["n_layer"],
+            vocab_size=config_data["vocab_size"],
         )
         model = Mamba(args)
 
         state_dict = load_state_dict_hf(pretrained_model_name)
         new_state_dict = {}
         for key in state_dict:
-            new_key = key.replace('backbone.', '')
+            new_key = key.replace("backbone.", "")
             new_state_dict[new_key] = state_dict[key]
         model.load_state_dict(new_state_dict)
 
         return model
-
-
-
 
 
 class ResidualBlock(nn.Module):
@@ -340,7 +308,6 @@ class ResidualBlock(nn.Module):
         self.args = args
         self.mixer = MambaBlock(args)
         self.norm = nn.LayerNorm(args.d_model)
-
 
     def forward(self, x):
         """
@@ -362,99 +329,89 @@ class ResidualBlock(nn.Module):
                 [Norm -> Mamba -> Add] -> [Norm -> Mamba -> Add] -> [Norm -> Mamba -> Add] -> ....
 
         """
-        output = self.mixer(self.norm(x)) 
+        output = self.mixer(self.norm(x))
 
         return output
 
 
 class gconv(nn.Module):
-    def __init__(self, inp, hid,embed,cheb_k,n):
+    def __init__(self, inp, hid, embed, cheb_k, n):
         super(gconv, self).__init__()
 
-        self.node_num=n
+        self.node_num = n
 
-        self.inp=inp
+        self.inp = inp
 
-        self.cheb_k=cheb_k
+        self.cheb_k = cheb_k
 
-        self.adj=nn.Parameter(torch.randn(n,embed), requires_grad=True)
-       
-
+        self.adj = nn.Parameter(torch.randn(n, embed), requires_grad=True)
 
         self.weights_pool = nn.Parameter(torch.FloatTensor(embed, cheb_k, inp, hid))
-        
-        self.bias_pool = nn.Parameter(torch.FloatTensor(embed,hid))
-        
+
+        self.bias_pool = nn.Parameter(torch.FloatTensor(embed, hid))
+
     def forward(self, x):
-        #x shaped[B, N, C], node_embeddings shaped [N, D] -> supports shaped [N, N]
-        #output shape [B, N, C]
-        
-        ADJ=F.softmax(F.relu(torch.mm(self.adj, self.adj.transpose(0, 1))), dim=1)
+        # x shaped[B, N, C], node_embeddings shaped [N, D] -> supports shaped [N, N]
+        # output shape [B, N, C]
 
+        ADJ = F.softmax(F.relu(torch.mm(self.adj, self.adj.transpose(0, 1))), dim=1)
 
-        
+        support_set = [torch.eye(self.node_num).cuda(), ADJ]
 
-        
-        support_set = [torch.eye(self.node_num).cuda(),ADJ]
-    
-        
         for k in range(2, self.cheb_k):
             support_set.append(torch.matmul(2 * ADJ, support_set[-1]) - support_set[-2])
-        
-        
+
         supports = torch.stack(support_set, dim=0)
-        
-        weights = torch.einsum('nd,dkio->nkio', self.adj, self.weights_pool)  #N, cheb_k, dim_in, dim_out
-        bias = torch.matmul(self.adj, self.bias_pool)                       #N, dim_out
-        x_g = torch.einsum("knm,bmc->bknc", supports, x)      #B, cheb_k, N, dim_in
+
+        weights = torch.einsum(
+            "nd,dkio->nkio", self.adj, self.weights_pool
+        )  # N, cheb_k, dim_in, dim_out
+        bias = torch.matmul(self.adj, self.bias_pool)  # N, dim_out
+        x_g = torch.einsum("knm,bmc->bknc", supports, x)  # B, cheb_k, N, dim_in
         x_g = x_g.permute(0, 2, 1, 3)  # B, N, cheb_k, dim_in
-        out_6 = torch.einsum('bnki,nkio->bno', x_g, weights) + bias   #B,N,D_OUT
+        out_6 = torch.einsum("bnki,nkio->bno", x_g, weights) + bias  # B,N,D_OUT
 
         return out_6
 
+
 class AVWGCN(nn.Module):
-    def __init__(self, dim_in, hid, cheb_k,n):
+    def __init__(self, dim_in, hid, cheb_k, n):
         super(AVWGCN, self).__init__()
 
-        self.node_num=n
+        self.node_num = n
 
-        self.inp=dim_in
+        self.inp = dim_in
 
         self.cheb_k = cheb_k
-        self.node_embeddings = nn.Parameter(torch.randn(n,dim_in,dim_in), requires_grad=True)
+        self.node_embeddings = nn.Parameter(
+            torch.randn(n, dim_in, dim_in), requires_grad=True
+        )
 
-        
+        self.weights_pool = nn.Parameter(torch.FloatTensor(cheb_k, n, dim_in, hid))
 
-
-
-        self.weights_pool = nn.Parameter(torch.FloatTensor(cheb_k,n,dim_in, hid))
-        
         self.bias_pool = nn.Parameter(torch.FloatTensor(n, hid))
-        
+
     def forward(self, x):
-        #x shaped[B, N, C], node_embeddings shaped [N, D] -> supports shaped [N, N]
-        #output shape [B, N, C]
-        
+        # x shaped[B, N, C], node_embeddings shaped [N, D] -> supports shaped [N, N]
+        # output shape [B, N, C]
+
         supports = F.softmax(F.relu(self.node_embeddings), dim=2)
 
-        I=torch.eye(self.inp).cuda()
+        I = torch.eye(self.inp).cuda()
 
-        I2=I[None,:,:].repeat(x.size(1),1,1)
-        
+        I2 = I[None, :, :].repeat(x.size(1), 1, 1)
 
         support_set = [I2, supports]
-        
-    
-        
-        
-        supports = torch.stack(support_set, dim=0)
-        
-                              #N, dim_out
-        x_g = torch.einsum("bnc,kncm->bknm", x, supports)      #B, cheb_k, N, dim_in
-        #x_g = x_g.permute(0, 2, 1, 3)  # B, N, cheb_k, dim_in
-        x_gconv = torch.einsum('bknm,knmo->bno', x_g, self.weights_pool) + self.bias_pool     #b, N, dim_out
-        return x_gconv
 
+        supports = torch.stack(support_set, dim=0)
+
+        # N, dim_out
+        x_g = torch.einsum("bnc,kncm->bknm", x, supports)  # B, cheb_k, N, dim_in
+        # x_g = x_g.permute(0, 2, 1, 3)  # B, N, cheb_k, dim_in
+        x_gconv = (
+            torch.einsum("bknm,knmo->bno", x_g, self.weights_pool) + self.bias_pool
+        )  # b, N, dim_out
+        return x_gconv
 
 
 class MambaBlock(nn.Module):
@@ -464,9 +421,6 @@ class MambaBlock(nn.Module):
         self.args = args
 
         self.embedding = nn.Linear(args.vocab_size, args.d_model)
-
-      
-
 
         self.in_proj = nn.Linear(args.d_model, args.d_inner * 2, bias=args.bias)
 
@@ -481,28 +435,27 @@ class MambaBlock(nn.Module):
             padding=args.d_conv - 1,
         )
 
-        
-
         # x_proj takes in `x` and outputs the input-specific Δ, B, C
-        self.x_proj = nn.Linear(args.d_inner, args.dt_rank + args.d_state * 2, bias=False)
+        self.x_proj = nn.Linear(
+            args.d_inner, args.dt_rank + args.d_state * 2, bias=False
+        )
 
         self.norm_f = RMSNorm(args.d_model)
 
-        self.lm_head = nn.Linear(args.d_model, args.vocab_size,bias=False)
+        self.lm_head = nn.Linear(args.d_model, args.vocab_size, bias=False)
 
-        #self.x_proj_r = nn.Linear(args.d_inner, args.dt_rank + args.d_state, bias=True)
+        # self.x_proj_r = nn.Linear(args.d_inner, args.dt_rank + args.d_state, bias=True)
 
-        #self.x_proj = FourierKANLayer(args.d_inner, args.dt_rank + args.d_state * 2, 100)
+        # self.x_proj = FourierKANLayer(args.d_inner, args.dt_rank + args.d_state * 2, 100)
 
         # dt_proj projects Δ from dt_rank to d_in
         self.dt_proj = nn.Linear(args.dt_rank, args.d_inner, bias=True)
-        #self.dt_proj=FourierKANLayer(args.dt_rank, args.d_inner, 100)
+        # self.dt_proj=FourierKANLayer(args.dt_rank, args.d_inner, 100)
 
-        A = repeat(torch.arange(1, args.d_state + 1), 'n -> d n', d=args.d_inner)
+        A = repeat(torch.arange(1, args.d_state + 1), "n -> d n", d=args.d_inner)
         self.A_log = nn.Parameter(torch.log(A))
         self.D = nn.Parameter(torch.ones(args.d_inner))
         self.out_proj = nn.Linear(args.d_inner, args.d_model, bias=args.bias)
-
 
     def forward(self, x):
         """Mamba block forward. This looks the same as Figure 3 in Section 3.4 in the Mamba paper [1].
@@ -520,35 +473,32 @@ class MambaBlock(nn.Module):
         """
         (b, l, d) = x.shape
 
-        #x=self.embedding(x)
+        # x=self.embedding(x)
 
         x_and_res = self.in_proj(x)  # shape (b, l, 2 * d_in)
-        (x, res) = x_and_res.split(split_size=[self.args.d_inner, self.args.d_inner], dim=-1)
+        (x, res) = x_and_res.split(
+            split_size=[self.args.d_inner, self.args.d_inner], dim=-1
+        )
 
-        x = rearrange(x, 'b l d_in -> b d_in l')
-    
+        x = rearrange(x, "b l d_in -> b d_in l")
+
         x = self.conv1d(x)[:, :, :l]
-        x = rearrange(x, 'b d_in l -> b l d_in')
-
-
+        x = rearrange(x, "b d_in l -> b l d_in")
 
         x = F.silu(x)
 
-        gate=x*(1-F.sigmoid(res))
-
-        
+        gate = x * (1 - F.sigmoid(res))
 
         y = self.ssm(x)
         y = y * F.silu(res)
 
         output = self.out_proj(y)
 
-        #o1=self.norm_f(output)
+        # o1=self.norm_f(output)
 
-        #o2=self.lm_head(o1)
+        # o2=self.lm_head(o1)
 
         return output
-
 
     def ssm(self, x):
         """Runs the SSM. See:
@@ -577,13 +527,16 @@ class MambaBlock(nn.Module):
 
         x_dbl = self.x_proj(x)  # (b, l, dt_rank + 2*n)
 
-        (delta, B, C) = x_dbl.split(split_size=[self.args.dt_rank, n, n], dim=-1)  # delta: (b, l, dt_rank). B, C: (b, l, n)
+        (delta, B, C) = x_dbl.split(
+            split_size=[self.args.dt_rank, n, n], dim=-1
+        )  # delta: (b, l, dt_rank). B, C: (b, l, n)
         delta = F.softplus(self.dt_proj(delta))  # (b, l, d_in)
 
-        y = self.selective_scan(x, delta, A, B, C, D)  # This is similar to run_SSM(A, B, C, u) in The Annotated S4 [2]
+        y = self.selective_scan(
+            x, delta, A, B, C, D
+        )  # This is similar to run_SSM(A, B, C, u) in The Annotated S4 [2]
 
         return y
-
 
     def selective_scan(self, u, delta, A, B, C, D):
         """Does selective scan algorithm. See:
@@ -619,8 +572,8 @@ class MambaBlock(nn.Module):
         # - A is discretized using zero-order hold (ZOH) discretization (see Section 2 Equation 4 in the Mamba paper [1])
         # - B is discretized using a simplified Euler discretization instead of ZOH. From a discussion with authors:
         #   "A is the more important term and the performance doesn't change much with the simplification on B"
-        deltaA = torch.exp(einsum(delta, A, 'b l d_in, d_in n -> b l d_in n'))
-        deltaB_u = einsum(delta, B, u, 'b l d_in, b l n, b l d_in -> b l d_in n')
+        deltaA = torch.exp(einsum(delta, A, "b l d_in, d_in n -> b l d_in n"))
+        deltaB_u = einsum(delta, B, u, "b l d_in, b l n, b l d_in -> b l d_in n")
 
         # Perform selective scan (see scan_SSM() in The Annotated S4 [2])
         # Note that the below is sequential, while the official implementation does a much faster parallel scan that
@@ -629,7 +582,7 @@ class MambaBlock(nn.Module):
         ys = []
         for i in range(l):
             x = deltaA[:, i] * x + deltaB_u[:, i]
-            y = einsum(x, C[:, i, :], 'b d_in n, b n -> b d_in')
+            y = einsum(x, C[:, i, :], "b d_in n, b n -> b d_in")
             ys.append(y)
         y = torch.stack(ys, dim=1)  # shape (b, l, d_in)
 
@@ -639,15 +592,14 @@ class MambaBlock(nn.Module):
 
 
 class RMSNorm(nn.Module):
-    def __init__(self,
-                 d_model: int,
-                 eps: float = 1e-5):
+    def __init__(self, d_model: int, eps: float = 1e-5):
         super().__init__()
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(d_model))
 
-
     def forward(self, x):
-        output = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps) * self.weight
+        output = (
+            x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps) * self.weight
+        )
 
         return output
